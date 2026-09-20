@@ -129,3 +129,5 @@ Insights resource to the Foundry project first.
   Dataverse/DB tables.
 - Photo authenticity checks are model-visual only; production would add EXIF
   and perceptual-hash verification in code.
+
+# sahaya
