@@ -1,0 +1,26 @@
+[
+  {
+    "disaster_ref": "WYD-LSL-2024",
+    "aliases": ["wayanad landslide 2024", "mundakkai landslide", "chooralmala landslide", "wayanad 2024"],
+    "district": "Wayanad",
+    "notified_on": "2024-07-30",
+    "notified_villages": ["Mundakkai", "Chooralmala", "Attamala", "Punchirimattam", "Vellarmala"],
+    "notified_panchayats": ["Meppadi", "Vythiri"]
+  },
+  {
+    "disaster_ref": "KL-FLD-2025",
+    "aliases": ["kerala monsoon floods 2025", "august floods 2025"],
+    "district": "Ernakulam",
+    "notified_on": "2025-08-12",
+    "notified_villages": ["Cheranalloor", "Kadamakkudy", "Varapuzha", "Eloor", "Chittattukara"],
+    "notified_panchayats": ["Kadamakkudy", "Varapuzha", "Chittattukara"]
+  },
+  {
+    "disaster_ref": "IDK-LSL-2025",
+    "aliases": ["idukki landslip 2025", "idukki landslide 2025"],
+    "district": "Idukki",
+    "notified_on": "2025-10-03",
+    "notified_villages": ["Rajakkad", "Santhanpara", "Bison Valley"],
+    "notified_panchayats": ["Rajakkad", "Santhanpara"]
+  }
+]

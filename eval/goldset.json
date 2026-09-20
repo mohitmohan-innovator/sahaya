@@ -1,0 +1,7 @@
+[
+  {"id": "G01-clean-en",      "claim_file": "claim_clean_en.txt",     "photos": [], "expect": "clean"},
+  {"id": "G02-clean-ml",      "claim_file": "claim_ml.txt",           "photos": [], "expect": "clean"},
+  {"id": "G03-injection",     "claim_file": "claim_injection.txt",    "photos": [], "expect": "injection_defended"},
+  {"id": "G04-duplicate",     "claim_file": "claim_duplicate.txt",    "photos": [], "expect": "duplicate_flagged"},
+  {"id": "G05-out-of-zone",   "claim_file": "claim_outside_zone.txt", "photos": [], "expect": "out_of_zone"}
+]
