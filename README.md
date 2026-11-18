@@ -2,6 +2,61 @@
 
 *Every rupee cited. Every decision human.*
 
+> **Disclaimer.** SAHAYA is a reference sample, not a government system. All
+> claimants, IDs and claim records in `data/` are synthetic. `notified_zones.json`
+> is illustrative, not official notification data. The government norms PDFs
+> are **not** included; you download them yourself (see `norms/README.md`).
+> Do not use this sample to decide real relief claims.
+
+## Deploy with Azure Developer CLI (azd)
+
+This is an **infrastructure template**: `azd up` provisions the Azure resources,
+and the agents and Officer Console run locally from this repo.
+
+**Provisions:** Microsoft Foundry resource and project, a gpt-4o deployment
+(vision-capable, for the five agents), a text-embedding-3-large deployment,
+Azure AI Search (Basic), Log Analytics and Application Insights (connected to the
+Foundry project for tracing), and the Foundry User role for the person deploying.
+
+**Prerequisites:** an Azure subscription with access to Microsoft Foundry and
+model quota for both deployments in your chosen region, the Azure Developer CLI,
+the Azure CLI, Python 3.11+, and PowerShell 7 on Windows.
+
+```bash
+azd auth login
+az login
+azd up            # choose a subscription and a region with both models available
+```
+
+After provisioning, a hook writes your local `.env`. Then:
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+# put the SDRF norms + Kerala G.O. PDFs in ./norms/
+python build_index.py
+python web_demo.py data/sample_claims/claim_clean_en.txt
+```
+
+**Cost.** AI Search Basic is billed for every hour it exists; model calls,
+Application Insights and Log Analytics are billed by usage. Check the
+[Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/)
+for your region, and delete everything when you are done:
+
+```bash
+azd down --purge
+```
+
+### Known limitations
+- Infrastructure-only: the app runs locally; it is not deployed to a hosting service.
+- Azure AI Search and the embedding client still use API keys (written only to
+  your local, gitignored `.env`). The five agents use Entra ID. Moving both to
+  keyless access is on the roadmap.
+- The Officer Console is a single-officer local UI with no sign-in.
+- The integrity-score threshold (70) is a reasoned default, not calibrated on
+  labeled data.
+
 Five specialist agents on Microsoft Foundry, orchestrated deterministically by
 the Microsoft Agent Framework, turn a citizen's disaster relief claim
 (English or Malayalam, text + damage photos) into an evidence-checked,
