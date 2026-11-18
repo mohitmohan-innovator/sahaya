@@ -222,3 +222,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# azd local state and hook backups
+.azure/
+.env.bak
