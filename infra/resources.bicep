@@ -18,6 +18,9 @@ param embeddingDeploymentSku string
 param embeddingCapacity int
 param searchSku string
 
+@description('Region for Azure AI Search (may differ from the models\' region).')
+param searchLocation string
+
 var aiAccountName = 'ais-${resourceToken}'
 var projectName = 'sahaya'
 var searchServiceName = 'srch-${resourceToken}'
@@ -145,7 +148,7 @@ resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections
 
 resource search 'Microsoft.Search/searchServices@2025-05-01' = {
   name: searchServiceName
-  location: location
+  location: searchLocation
   tags: tags
   sku: { name: searchSku }
   properties: {

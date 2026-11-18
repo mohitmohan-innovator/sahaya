@@ -44,6 +44,9 @@ param embeddingDeploymentSku string = 'Standard'
 @minValue(1)
 param embeddingCapacity int = 30
 
+@description('Optional region for Azure AI Search only. Leave empty to use the same region as everything else. Set it when Search is out of capacity in your main region.')
+param searchLocation string = ''
+
 @description('Azure AI Search tier. Basic is the lowest tier that supports semantic ranking for this template.')
 @allowed([ 'basic', 'standard' ])
 param searchSku string = 'basic'
@@ -74,6 +77,7 @@ module resources 'resources.bicep' = {
     embeddingDeploymentSku: embeddingDeploymentSku
     embeddingCapacity: embeddingCapacity
     searchSku: searchSku
+    searchLocation: empty(searchLocation) ? location : searchLocation
   }
 }
 
