@@ -80,8 +80,10 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
   }
 }
 
-// Deployments are created one after another: parallel deployments on the
-// same account can fail with a conflict error.
+// Every change to the Foundry account (project, both deployments, the App
+// Insights connection) runs one after another. Azure allows only one
+// operation at a time on an account; running them in parallel fails with
+// "RequestConflict: Another operation is in progress".
 resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiAccount
   name: chatModelName
@@ -96,6 +98,7 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-0
       version: chatModelVersion
     }
   }
+  dependsOn: [ project ]
 }
 
 resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
@@ -133,6 +136,7 @@ resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections
       ResourceId: appInsights.id
     }
   }
+  dependsOn: [ embeddingDeployment ]
 }
 
 // ---------------------------------------------------------------------------
