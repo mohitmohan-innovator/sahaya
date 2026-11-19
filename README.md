@@ -8,55 +8,6 @@
 > are **not** included; you download them yourself (see `norms/README.md`).
 > Do not use this sample to decide real relief claims.
 
-## Deploy with Azure Developer CLI (azd)
-
-This is an **infrastructure template**: `azd up` provisions the Azure resources,
-and the agents and Officer Console run locally from this repo.
-
-**Provisions:** Microsoft Foundry resource and project, a gpt-4o deployment
-(vision-capable, for the five agents), a text-embedding-3-large deployment,
-Azure AI Search (Basic), Log Analytics and Application Insights (connected to the
-Foundry project for tracing), and the Foundry User role for the person deploying.
-
-**Prerequisites:** an Azure subscription with access to Microsoft Foundry and
-model quota for both deployments in your chosen region, the Azure Developer CLI,
-the Azure CLI, Python 3.11+, and PowerShell 7 on Windows.
-
-```bash
-azd auth login
-az login
-azd up            # choose a subscription and a region with both models available
-```
-
-After provisioning, a hook writes your local `.env`. Then:
-
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-# put the SDRF norms + Kerala G.O. PDFs in ./norms/
-python build_index.py
-python web_demo.py data/sample_claims/claim_clean_en.txt
-```
-
-**Cost.** AI Search Basic is billed for every hour it exists; model calls,
-Application Insights and Log Analytics are billed by usage. Check the
-[Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/)
-for your region, and delete everything when you are done:
-
-```bash
-azd down --purge
-```
-
-### Known limitations
-- Infrastructure-only: the app runs locally; it is not deployed to a hosting service.
-- Azure AI Search and the embedding client still use API keys (written only to
-  your local, gitignored `.env`). The five agents use Entra ID. Moving both to
-  keyless access is on the roadmap.
-- The Officer Console is a single-officer local UI with no sign-in.
-- The integrity-score threshold (70) is a reasoned default, not calibrated on
-  labeled data.
-
 Five specialist agents on Microsoft Foundry, orchestrated deterministically by
 the Microsoft Agent Framework, turn a citizen's disaster relief claim
 (English or Malayalam, text + damage photos) into an evidence-checked,
@@ -67,6 +18,10 @@ arithmetic against the raw specialist outputs before anything is recorded.
 ```
 Intake → (Evidence ∥ Norms ∥ Integrity) → Adjudicator → Officer gate → Backstop → Decision record
 ```
+
+![SAHAYA architecture](docs/images/architecture.png)
+
+![Officer Console](docs/images/officer-console-case.png)
 
 Built for the Microsoft Agent-a-thon, Level 3 Architect. Context: Kerala's
 post-disaster relief adjudication (2018 floods, 2024 Wayanad landslides),
@@ -88,21 +43,85 @@ bottleneck. All claimants and IDs in this repository are synthetic.
 4. **Deterministic process, probabilistic reasoning.** The workflow graph is
    code; only what happens inside each agent is a model.
 
-## Setup
+## Deploy with Azure Developer CLI (azd)
+
+This is an **infrastructure template**: `azd up` provisions the Azure resources,
+and the agents and Officer Console run locally from this repo.
+
+**Provisions:** Microsoft Foundry resource and project, a gpt-4o deployment
+(vision-capable, for the five agents), a text-embedding-3-large deployment,
+Azure AI Search (Basic), Log Analytics and Application Insights (connected to the
+Foundry project for tracing), and the Foundry User role for the person deploying.
+
+**Prerequisites:** an Azure subscription with access to Microsoft Foundry and
+model quota for both deployments in your chosen region, the
+[Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd),
+the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli),
+Python 3.11+, and PowerShell 7 on Windows.
+
+### 1. Sign in once
+
+`azd up` uses your azd sign-in. The post-provision step and the agents use the
+Azure CLI sign-in. To sign in only once, tell `azd` to reuse your Azure CLI
+credentials:
 
 ```bash
-python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-az login
-cp .env.example .env    # fill in endpoints and deployment names
+azd config set auth.useAzCliAuth true
+az login            # add --tenant <tenant-id> if you use several tenants
 ```
 
-Azure prerequisites (see the build guide): a Foundry project with a
-multimodal chat deployment + text-embedding-3-large, an AI Search service,
-and the norms PDFs downloaded into `./norms` (see `norms/README.md`).
+This is a per-user `azd` setting, so it applies to all your azd projects. Undo
+it with `azd config unset auth.useAzCliAuth`.
+
+Prefer to keep the two tools separate? Run `azd auth login` and `az login`
+instead and refresh both when either session expires.
+
+### 2. Provision
 
 ```bash
-python build_index.py                      # chunk, embed, index the norms
+azd up            # asks for an environment name, a subscription and a region
+```
+
+Choose a region where both models are available. The post-provision hook
+selects the same subscription in the Azure CLI and writes your local `.env`.
+
+If Azure AI Search has no capacity in your region (the deployment fails with
+`InsufficientResourcesAvailable`), put Search in a different region and run
+`azd up` again. The models stay in your main region:
+
+```bash
+azd env set AZURE_SEARCH_LOCATION centralus
+```
+
+### 3. Run SAHAYA
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+# put the SDRF norms + Kerala G.O. PDFs in ./norms/ (see norms/README.md)
+python build_index.py
+python web_demo.py data/sample_claims/claim_clean_en.txt
+```
+
+This opens the Officer Console at `http://127.0.0.1:8000`.
+
+### Cost
+
+AI Search Basic is billed for every hour it exists; model calls, Application
+Insights and Log Analytics are billed by usage. Check the
+[Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/)
+for your region, and delete everything when you are done:
+
+```bash
+azd down --purge
+```
+
+## Other ways to run
+
+With the resources in place (from `azd up` or your own):
+
+```bash
 python workflow.py --viz data/sample_claims/claim_clean_en.txt   # export graph only
 python workflow.py data/sample_claims/claim_clean_en.txt --photos data/photos/house1.jpg
 python workflow.py data/sample_claims/claim_ml.txt               # Malayalam intake
@@ -113,6 +132,19 @@ python -m eval.run_evals                   # the 5-case safety suite (live infer
 Decision records land in `out/<CASE>.decision.json` — the full audit trail:
 claim, all three specialist findings, the pack, the officer's decision, and
 the backstop verdict.
+
+### Using your own Azure resources instead of azd
+
+```bash
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+az login
+cp .env.example .env    # fill in endpoints and deployment names
+```
+
+You need a Foundry project with a multimodal chat deployment and
+text-embedding-3-large, an AI Search service, and the norms PDFs downloaded
+into `./norms` (see `norms/README.md`). Then run `python build_index.py`.
 
 ## Officer Console (web UI)
 
@@ -147,42 +179,7 @@ or a Power Apps screen; the JSON contract (`OfficerRequest` in and
 
 | Path | What it is |
 |---|---|
-| `workflow.py` | Orchestration: executors, fan-out/fan-in, officer gate, console loop |
-| `instructions.py` | The five agent system prompts (versioned; v1.0) |
-| `tools.py` | `search_norms`, `registry_lookup`, `zone_check` + the deterministic backstop |
-| `build_index.py` | Chunks and embeds the norms PDFs into Azure AI Search |
-| `data/` | Synthetic claims registry, notified zones, five sample claims |
-| `eval/` | Gold set + harness asserting P1–P5 safety properties |
-| `out/` | Decision records, workflow graph (mermaid/SVG) |
-
-## Version pinning
-
-Written and API-verified against `agent-framework==1.18.0`
-(`agent-framework-foundry==1.13.0`). The framework moves fast; if an import
-fails on a newer version, install the pinned versions or check the current
-samples at learn.microsoft.com/agent-framework.
-
-## Observability
-
-Foundry-hosted model calls appear in the project's tracing view. To export
-Agent Framework spans to Application Insights, wire OpenTelemetry per the
-framework's observability docs (`agent_framework.observability` —
-`configure_otel_providers`, `enable_instrumentation`); connect your App
-Insights resource to the Foundry project first.
-
-## Prompt changelog
-
-- v1.0 — initial five prompts.
-
-## Known limitations (deliberate scope for the challenge)
-
-- Officer gate is a console loop; production would surface it as a Teams
-  approval or a Power Apps queue.
-- AI Search uses key auth locally; production posture is managed identity +
-  Key Vault throughout.
-- The claims registry and notified zones are JSON files standing in for
-  Dataverse/DB tables.
-- Photo authenticity checks are model-visual only; production would add EXIF
-  and perceptual-hash verification in code.
-
-# sahaya
+| `azure.yaml` | azd project definition and post-provision hooks |
+| `infra/` | Bicep templates: Foundry, models, AI Search, monitoring, role assignment |
+| `scripts/` | Post-provision hooks (PowerShell and shell) that write your local `.env` |
+| `workflow.py` | Orchestration: executors,
