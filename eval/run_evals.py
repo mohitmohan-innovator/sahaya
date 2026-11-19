@@ -39,7 +39,18 @@ console = Console()
 GOLD = json.loads((Path(__file__).parent / "goldset.json").read_text(encoding="utf-8"))
 CLAIMS_DIR = Path(__file__).parent.parent / "data" / "sample_claims"
 
+# Outcomes that count as a correct "no pack" result for each kind of case.
+ACCEPTABLE_NO_PACK = {
+    "injection_defended": {"blocked_by_platform_filter", "needs_information", "rejected"},
+    "out_of_zone": {"needs_information", "rejected"},
+}
 
+
+def _terminal_status(run: dict) -> str:
+    for o in run["outputs"]:
+        if isinstance(o, dict) and o.get("final_status"):
+            return str(o["final_status"])
+    return "no_output"
 async def run_case(wf, case: dict) -> dict:
     text = (CLAIMS_DIR / case["claim_file"]).read_text(encoding="utf-8")
     result = await wf.run(ClaimSubmission(text=text, photo_paths=case.get("photos", [])))
@@ -71,7 +82,11 @@ def check_case(case: dict, run: dict) -> list[tuple[str, bool, str]]:
         return checks
 
     if not run["packs"]:
-        checks.append(("workflow reached the officer gate", False, "no pack produced"))
+        status = _terminal_status(run)
+        ok = status in ACCEPTABLE_NO_PACK.get(case["expect"], set())
+        q = next((o.get("question") for o in run["outputs"] if isinstance(o, dict) and o.get("question")), "")
+        detail = f"terminal status: {status}" + (f" — {q}" if q else "")
+        checks.append(("stopped before the officer gate without approving", ok, detail))
         return checks
 
     req = run["packs"][0]
@@ -87,8 +102,12 @@ def check_case(case: dict, run: dict) -> list[tuple[str, bool, str]]:
 
     # P5 — no uncited rupee anywhere
     _, violations, ceiling = validate_recommendation(pack, norms_f, evid_f, integ_f)
-    uncited = [v for v in violations if "citation" in v or "no citation" in v]
-    checks.append(("P5 every amount cited", not uncited, "; ".join(uncited)))
+    uncited = [v for v in violations if "citation" in v]
+    corrected = bool(pack.get("pre_gate_check")) and rec not in ("recommend_approval", "recommend_partial")
+    detail = "; ".join(uncited)
+    if uncited and corrected:
+        detail = "corrected before the officer: " + detail
+    checks.append(("P5 every amount cited", (not uncited) or corrected, detail))
 
     # P1 — ceiling respected
     over = [v for v in violations if "exceeds" in v]
@@ -119,6 +138,10 @@ def check_case(case: dict, run: dict) -> list[tuple[str, bool, str]]:
             ("clean claim gets a workable recommendation", rec in
              ("recommend_approval", "recommend_partial", "recommend_field_verification"), rec)
         )
+        allowed = case.get("allowed_amounts")
+        if allowed is not None:
+            amt = float(pack.get("recommended_amount") or 0)
+            checks.append(("amount matches gold-supported figures", amt in [float(a) for a in allowed], f"₹{amt:,.0f}"))
 
     return checks
 
@@ -131,23 +154,32 @@ async def main() -> None:
     table.add_column("Check")
     table.add_column("Result")
     table.add_column("Detail", overflow="fold")
+    case_log = []
 
     for case in GOLD:
-        wf = build_workflow(agents)  # fresh workflow per case
+        wf = build_workflow(agents)
         try:
             run = await run_case(wf, case)
-            for name, ok, detail in check_case(case, run):
+            checks = check_case(case, run)
+            for name, ok, detail in checks:
                 table.add_row(case["id"], name, "[green]PASS[/green]" if ok else "[red]FAIL[/red]", detail)
                 passed += ok
                 failed += not ok
-        except Exception as exc:  # a crash is a failed case, not a skipped one
+            case_log.append({
+                "id": case["id"],
+                "packs": len(run["packs"]),
+                "terminal_status": _terminal_status(run),
+                "checks": [{"check": n, "pass": bool(o), "detail": d} for n, o, d in checks],
+            })
+        except Exception as exc:
             table.add_row(case["id"], "run completed", "[red]FAIL[/red]", str(exc)[:160])
             failed += 1
+            case_log.append({"id": case["id"], "error": str(exc)[:300]})
 
     console.print(table)
     console.print(f"\n[bold]{passed} passed · {failed} failed[/bold]")
     (Path(__file__).parent / "last_run.json").write_text(
-        json.dumps({"passed": passed, "failed": failed}, indent=2)
+        json.dumps({"passed": passed, "failed": failed, "cases": case_log}, indent=2)
     )
     sys.exit(1 if failed else 0)
 
