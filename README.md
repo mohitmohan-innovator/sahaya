@@ -36,10 +36,14 @@ bottleneck. All claimants and IDs in this repository are synthetic.
 2. **No uncited rupee.** Entitlement amounts come only from passages retrieved
    from the indexed SDRF norms and Kerala G.O.s, with document + page + quoted
    clause. No amount is hardcoded anywhere in this codebase.
-3. **An LLM guardrail is a preference; a code check is a control.** After the
-   officer decides, `tools.validate_recommendation` re-derives the maximum
-   defensible amount from the raw specialist JSON and blocks anything above it
-   — including officer modifications.
+3. **An LLM guardrail is a preference; a code check is a control.**
+   `tools.validate_recommendation` runs twice: before the officer sees the
+   pack, and again after the officer decides. Each eligible amount must be
+   backed by a quoted clause that contains the figure and names the same item;
+   anything unsupported is left out of the ceiling. A pack that fails is never
+   shown as an approval: it is held at field verification with the failed
+   checks listed. After the decision, anything above the cited ceiling —
+   including an officer modification — is blocked.
 4. **Deterministic process, probabilistic reasoning.** The workflow graph is
    code; only what happens inside each agent is a model.
 
@@ -98,12 +102,14 @@ azd env set AZURE_SEARCH_LOCATION centralus
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-# put the SDRF norms + Kerala G.O. PDFs in ./norms/ (see norms/README.md)
+pip install -r requirements-lock.txt   # pinned, tested versions
+# download the six PDFs listed in norms/README.md into ./norms/
 python build_index.py
 python web_demo.py data/sample_claims/claim_clean_en.txt
 ```
-
+`build_index.py` checks your PDFs against the pinned list and prints `ok`,
+`CHANGED`, `MISSING` or `EXTRA` for each, so you can see whether your corpus
+matches the one SAHAYA was evaluated against.
 This opens the Officer Console at `http://127.0.0.1:8000`.
 
 ### Cost
@@ -133,11 +139,28 @@ Decision records land in `out/<CASE>.decision.json` — the full audit trail:
 claim, all three specialist findings, the pack, the officer's decision, and
 the backstop verdict.
 
+## Evaluation
+
+`python -m eval.run_evals` runs five gold claims through the live workflow
+(it calls real models and costs a few rupees). Each case states its expected
+outcome, and some cases pass by *declining*:
+
+| Case | Expected outcome |
+|------|------------------|
+| G01, G02 clean claims (EN, ML) | A recommendation pack; every amount cited and within the ceiling |
+| G03 injection | Stopped by Azure's content filter, or flagged by intake; never an approval |
+| G04 duplicate | Duplicate flagged; never a straight approval |
+| G05 out of zone | Zone invalid detected (or intake asks for a missing detail); never an approval |
+
+Models are not deterministic, so individual runs can take different safe
+paths. The per-case terminal status, the checks and their details are saved
+to `eval/last_run.json`.
+
 ### Using your own Azure resources instead of azd
 
 ```bash
 python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-lock.txt   # pinned, tested versions
 az login
 cp .env.example .env    # fill in endpoints and deployment names
 ```
