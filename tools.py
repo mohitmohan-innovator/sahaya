@@ -177,6 +177,75 @@ def _num(x: Any) -> float | None:
             return float(m.group(0).replace(",", ""))
     return None
 
+_SYNONYMS = {
+    "cow": "cattle", "cows": "cattle", "livestock": "cattle",
+    "housing": "house", "houses": "house", "home": "house", "dwelling": "house",
+    "sheds": "shed",
+}
+# Words that describe severity or cause, not WHAT is being compensated.
+_GENERIC = {
+    "loss", "lost", "damage", "damaged", "damages", "partial", "partially",
+    "full", "fully", "complete", "completely", "total", "totally", "due",
+    "landslide", "flood", "claim", "assistance", "relief", "item", "items",
+    "the", "and", "for", "per", "with", "from", "any", "other", "not",
+    "caused", "affected",
+}
+
+def _numbers_in(text: str) -> set[float]:
+    out: set[float] = set()
+    for m in re.finditer(r"\d[\d,]*(?:\.\d+)?", text or ""):
+        try:
+            out.add(float(m.group(0).replace(",", "")))
+        except ValueError:
+            pass
+    return out
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z]+", (text or "").lower())
+
+
+def _terms(text: str) -> set[str]:
+    out: set[str] = set()
+    for w in _words(text):
+        w = _SYNONYMS.get(w, w)
+        if len(w) > 2 and w not in _GENERIC:
+            out.add(w[:4])
+    return out
+
+
+def _severity(text: str) -> tuple[bool, bool]:
+    ws = _words(text)
+    partial = any(w.startswith("partial") for w in ws)
+    full = any(w.startswith(("full", "complet", "total", "destroy")) for w in ws)
+    return partial, full
+
+
+def _clause_problems(item: dict[str, Any], amount: float | None) -> list[str]:
+    """Reasons the cited clause does not support this item and amount."""
+    quote = (item.get("citation") or {}).get("quoted_clause", "")
+    name = str(item.get("item", ""))
+    problems: list[str] = []
+    if amount is not None and not any(abs(n - amount) < 0.5 for n in _numbers_in(quote)):
+        problems.append(
+            f"Norms item '{name}': the cited clause does not contain ₹{amount:,.0f} "
+            "(citation does not support the figure)."
+        )
+    nouns = _terms(name)
+    if nouns and len(nouns & _terms(quote)) / len(nouns) < 0.5:
+        problems.append(
+            f"Norms item '{name}': the cited clause does not mention this item "
+            "(citation is for a different entitlement)."
+        )
+    item_partial, item_full = _severity(name)
+    clause_partial, clause_full = _severity(quote)
+    if (item_partial and not clause_partial and clause_full) or (
+        item_full and not clause_full and clause_partial
+    ):
+        problems.append(
+            f"Norms item '{name}': the cited clause covers a different level of damage "
+            "(citation severity does not match)."
+        )
+    return problems
+
 
 def validate_recommendation(
     pack: dict[str, Any],
@@ -199,7 +268,11 @@ def validate_recommendation(
             if not cited:
                 violations.append(f"Norms item '{item.get('item')}' marked eligible without a citation.")
             elif amount is not None:
-                cited_total += amount
+                problems = _clause_problems(item, amount)
+                if problems:
+                    violations.extend(problems)   # unsupported amounts add nothing to the ceiling
+                else:
+                    cited_total += amount
         if amount is not None and not cited:
             violations.append(f"Norms item '{item.get('item')}' carries an amount with no citation.")
 

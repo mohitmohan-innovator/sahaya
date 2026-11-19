@@ -34,7 +34,45 @@ from azure.search.documents.indexes.models import (
 )
 from dotenv import load_dotenv
 from pypdf import PdfReader
+import hashlib
+from pathlib import Path
 
+PINNED = [  # (file name prefix, SHA-256)
+    ("Revised_items_and_norms_of_assistance",
+     "0F8CA133BB8441D16E8568AE4A9D036976354BF2B48FEAB8C7B866ECCB99C7E1"),
+    ("Memorandum_17082024",
+     "1FE8C37F0DD83C513ACE9B07E6AC43B8FBBC16B8C7A1E562791D922E0C5FE3A7"),
+    ("GO22024Meppadi",
+     "D7510481267B992F8EFDD8D70EA1FD9A1F8C446F840F5870A7C9F007848051A8"),
+    ("govtorder1408202414_01_37",
+     "6677F7C883FF3C19ABDEBFED5DD40A3852B5025D01D7A93B6C079C233564EB82"),
+    ("govtorder1708202410_00_15",
+     "AED8A3211C49F22A3AE9CBC0067F6A58CD88E1057DB2DCFD6018E26B4C8DCDF0"),
+    ("GO-Housing-2025",
+     "39D1AB5BAAC17E37DE7FC4474279D92CD19F682DEED32A261093C07605E79528"),
+]
+
+def verify_corpus(norms_dir="norms"):
+    files = sorted(Path(norms_dir).glob("*.pdf"))
+    matched = set()
+    ok = True
+    for prefix, sha in PINNED:
+        hit = next((f for f in files if f.name.startswith(prefix)), None)
+        if hit is None:
+            print(f"MISSING  {prefix}")
+            ok = False
+            continue
+        matched.add(hit)
+        actual = hashlib.sha256(hit.read_bytes()).hexdigest().upper()
+        status = "ok     " if actual == sha else "CHANGED"
+        ok = ok and actual == sha
+        print(f"{status}  {hit.name[:60]}")
+    for f in files:
+        if f not in matched:
+            print(f"EXTRA    {f.name} (not in the pinned set)")
+    if not ok:
+        print("\nWARNING: corpus differs from the pinned set. Results may not match the published evaluation.\n")
+    return ok
 load_dotenv(override=True)
 DIM = 3072  # text-embedding-3-large
 INDEX = "sahaya-norms"
@@ -104,6 +142,7 @@ def chunks_from_pdf(path: Path):
 
 
 async def main() -> None:
+    verify_corpus()
     make_index()
 
     from openai import AsyncAzureOpenAI

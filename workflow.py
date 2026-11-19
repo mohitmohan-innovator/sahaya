@@ -144,7 +144,50 @@ def photo_message(claim_json: str, photo_paths: list[str]) -> Message:
         contents.append(Content.from_data(data=data, media_type=media))
     return Message(role="user", contents=contents)
 
+_APPROVAL_RECS = ("recommend_approval", "recommend_partial")
 
+
+def enforce_pre_gate(pack: dict, by_kind: dict) -> dict:
+    """Run the deterministic validator BEFORE the officer sees the pack.
+    A failing pack is never shown as an approval: it is held at field
+    verification, limited to the supported ceiling, and the failures are
+    listed for the officer."""
+    ok, violations, ceiling = validate_recommendation(
+        pack,
+        norms_finding=json.loads(by_kind.get("norms", "{}")),
+        evidence_finding=json.loads(by_kind.get("evidence", "{}")),
+        integrity_finding=json.loads(by_kind.get("integrity", "{}")),
+    )
+    if ok:
+        return pack
+    original = {
+        "recommendation": pack.get("recommendation"),
+        "recommended_amount": pack.get("recommended_amount"),
+    }
+    if pack.get("recommendation") in _APPROVAL_RECS:
+        pack["recommendation"] = "recommend_field_verification"
+    try:
+        amount = float(pack.get("recommended_amount") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    limited = min(amount, ceiling)
+    pack["recommended_amount"] = int(limited) if limited == int(limited) else limited
+    pack["open_questions"] = list(pack.get("open_questions", [])) + [
+        f"Automated check: {v}" for v in violations
+    ]
+    note = (
+        f"Backstop: {len(violations)} automated check(s) failed before review; "
+        "recommendation held at field verification and the amount limited to the supported ceiling."
+    )
+    kf = list(pack.get("key_findings", []))
+    pending = "Pending human adjudication by the Village Officer."
+    if kf and kf[-1] == pending:
+        kf.insert(len(kf) - 1, note)
+    else:
+        kf.append(note)
+    pack["key_findings"] = kf
+    pack["pre_gate_check"] = {"ok": False, "violations": violations, "original": original}
+    return pack
 # ---------------------------------------------------------------------------
 # Agents (created once, injected into executors)
 # ---------------------------------------------------------------------------
@@ -346,6 +389,7 @@ def build_workflow(agents: dict[str, Agent]):
         )
         reply = await agents["adjudicator"].run(prompt)
         pack = extract_json(reply.text)
+        pack = enforce_pre_gate(pack, by_kind)
         await ctx.send_message(
             AdjudicationPack(
                 claim_json=claim_json,
